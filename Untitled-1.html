@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Objectifs Journaliers</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+  :root{
+    --bg:#f3f4f6;
+    --card:#fff;
+    --text:#111;
+    --sub:#555;
+    --accent:#007aff;
+    --bad:#ff3b30;
+    --good:#2ecc71;
+  }
+  body.dark{
+    --bg:#0f172a;
+    --card:#111827;
+    --text:#fff;
+    --sub:#aaa;
+  }
+
+  body{
+    font-family: Arial, Helvetica, sans-serif;
+    background:var(--bg);
+    margin:0;
+    color:var(--text);
+  }
+
+  .app{
+    max-width:900px;
+    margin:30px auto;
+    background:var(--card);
+    padding:24px;
+    border-radius:16px;
+    box-shadow:0 10px 30px rgba(0,0,0,.15);
+  }
+
+  h1,h2{text-align:center;margin-top:0}
+
+  .toolbar{
+    display:flex;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+
+  button,select,input{
+    padding:10px;
+    border-radius:10px;
+    border:1px solid #4443;
+    background:#007aff;
+    color:#fff;
+    cursor:pointer;
+  }
+
+  select,input{
+    color:#111;
+  }
+  body.dark select,body.dark input{color:#fff;background:#222;border:1px solid #555;}
+
+  .line{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin:15px 0;
+  }
+
+  #taskInput{flex:2}
+  #categoryInput{width:140px}
+  #targetInput{width:120px}
+
+  ul{list-style:none;padding:0;margin-top:10px}
+  li{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px;
+    border-bottom:1px solid #4443;
+    padding:10px 0;
+  }
+
+  .counter{display:flex;gap:6px}
+  .small{padding:6px 10px}
+  .delete{background:#ff3b30;margin-left:auto}
+
+  .calendar{
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+    gap:10px;
+    margin:20px 0;
+  }
+  .day{
+    text-align:center;
+    padding:10px;
+    border-radius:10px;
+    background:#e5e5ea;
+    cursor:pointer;
+  }
+  .selected{background:#007aff;color:#fff}
+
+  .stat{
+    text-align:center;
+    margin-top:-5px;
+    font-weight:bold;
+  }
+  .green{color:var(--good)}
+  .red{color:var(--bad)}
+</style>
+</head>
+
+<body>
+<div class="app">
+  <div class="toolbar">
+    <h1>Mes Objectifs Journaliers</h1>
+    <button onclick="toggleDark()">🌙 Mode sombre</button>
+  </div>
+
+  <h2>Semaine</h2>
+  <div id="calendar" class="calendar"></div>
+  <div id="stat" class="stat"></div>
+
+  <div class="line">
+    <input id="taskInput" placeholder="Nouvel objectif…">
+    <input id="categoryInput" placeholder="Catégorie…">
+    <input id="targetInput" type="number" min="1" value="1">
+    <button onclick="addTask()">Ajouter</button>
+  </div>
+
+  <div class="line">
+    <select id="sortSelect" onchange="render()">
+      <option value="name">Tri : Nom</option>
+      <option value="cat">Tri : Catégorie</option>
+      <option value="target">Tri : Objectif</option>
+    </select>
+
+    <button onclick="exportCSV()">📄 Export CSV</button>
+    <button onclick="window.print()">🖨 Export PDF</button>
+  </div>
+
+  <ul id="taskList"></ul>
+</div>
+
+<script>
+let data = JSON.parse(localStorage.getItem("goals_pro") || '{"tasks":[],"history":{}}');
+
+function save(){ localStorage.setItem("goals_pro",JSON.stringify(data)); }
+
+function today(){ return new Date().toISOString().slice(0,10); }
+let selectedDate=today();
+
+function getDay(date){
+  if(!data.history[date]) data.history[date]={counts:{}};
+  data.tasks.forEach(t=>{
+    if(data.history[date].counts[t.id]==null)
+      data.history[date].counts[t.id]=0;
+  });
+  return data.history[date];
+}
+
+// INIT
+getDay(today());
+
+// ---------- MODE SOMBRE ----------
+if(localStorage.dark==="1") document.body.classList.add("dark");
+function toggleDark(){
+  document.body.classList.toggle("dark");
+  localStorage.dark=document.body.classList.contains("dark")?"1":"0";
+}
+
+// ---------- AJOUT ----------
+function addTask(){
+  const name=document.getElementById("taskInput").value.trim();
+  const cat=document.getElementById("categoryInput").value.trim()||"Général";
+  const target=Number(document.getElementById("targetInput").value)||1;
+  if(!name) return;
+
+  data.tasks.push({id:crypto.randomUUID(),name,cat,target});
+  Object.values(data.history).forEach(d=>d.counts[data.tasks.at(-1).id]=0);
+  document.getElementById("taskInput").value="";
+  save(); render();
+}
+
+// ---------- RENDU LISTE ----------
+function render(){
+  const list=document.getElementById("taskList");
+  list.innerHTML="";
+  const day=getDay(selectedDate);
+  const sort=document.getElementById("sortSelect").value;
+
+  let tasks=[...data.tasks];
+  if(sort==="name") tasks.sort((a,b)=>a.name.localeCompare(b.name));
+  if(sort==="cat") tasks.sort((a,b)=>a.cat.localeCompare(b.cat));
+  if(sort==="target") tasks.sort((a,b)=>a.target-b.target);
+
+  let done=0;
+
+  tasks.forEach((t)=>{
+    const count=day.counts[t.id]||0;
+    if(count>=t.target) done++;
+
+    const li=document.createElement("li");
+    li.innerHTML=`
+      <strong>${t.name}</strong>
+      <span style="color:var(--sub)">(${t.cat})</span>
+      <span class="${count>=t.target?'green':'red'}">
+        ${count} / ${t.target}
+      </span>
+    `;
+
+    const box=document.createElement("div");
+    box.className="counter";
+
+    const minus=document.createElement("button");
+    minus.textContent="-"; minus.className="small";
+    minus.onclick=()=>{ if(selectedDate===today()&&day.counts[t.id]>0){
+      day.counts[t.id]--; save(); render(); } };
+
+    const plus=document.createElement("button");
+    plus.textContent="+"; plus.className="small";
+    plus.onclick=()=>{ if(selectedDate===today()){
+      day.counts[t.id]++; save(); render(); } };
+
+    box.appendChild(minus); box.appendChild(plus);
+
+    if(selectedDate===today()){
+      const del=document.createElement("button");
+      del.textContent="Supprimer"; del.className="delete";
+      del.onclick=()=>{ data.tasks=data.tasks.filter(x=>x.id!==t.id); save(); render(); };
+      li.appendChild(box); li.appendChild(del);
+    }else li.appendChild(box);
+
+    list.appendChild(li);
+  });
+
+  // ---------- STAT ----------
+  const percent=data.tasks.length?
+    Math.round(100*done/data.tasks.length):0;
+
+  const stat=document.getElementById("stat");
+  stat.textContent=`Réussite du jour : ${percent}%`;
+  stat.className="stat "+(percent===100?"green":"red");
+}
+
+// ---------- CALENDRIER ----------
+function renderCalendar(){
+  const cal=document.getElementById("calendar");
+  cal.innerHTML="";
+  const now=new Date();
+  const dow=(now.getDay()+6)%7;
+
+  for(let i=0;i<7;i++){
+    const d=new Date();
+    d.setDate(now.getDate()-dow+i);
+    const str=d.toISOString().slice(0,10);
+
+    const div=document.createElement("div");
+    div.className="day"+(str===selectedDate?" selected":"");
+    div.textContent=str.slice(5);
+    div.onclick=()=>{selectedDate=str; renderCalendar(); render();}
+    cal.appendChild(div);
+  }
+}
+
+// ---------- RESET MINUIT ----------
+function scheduleReset(){
+  const now=new Date();
+  const mid=new Date(); mid.setHours(24,0,0,0);
+  setTimeout(()=>{getDay(today()); save(); scheduleReset();},mid-now);
+}
+scheduleReset();
+
+renderCalendar();
+render();
+
+// ---------- EXPORT CSV ----------
+function exportCSV(){
+  let rows=[];
+  rows.push(["date","objectif","catégorie","fait","objectif_jour"]);
+  for(let date in data.history){
+    const day=data.history[date];
+    data.tasks.forEach(t=>{
+      rows.push([date,t.name,t.cat,day.counts[t.id]||0,t.target]);
+    });
+  }
+  const csv=rows.map(r=>r.join(";")).join("\n");
+  const url=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  const a=document.createElement("a");
+  a.href=url;a.download="objectifs.csv";a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
